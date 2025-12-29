@@ -1,0 +1,32 @@
+{
+  "tools": [
+    {
+      "name": "image.generate",
+      "version": "v1",
+      "tags": ["write", "image", "gen"],
+      "scopes": ["image:write"],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string" },
+          "size": { "type": "string", "default": "1024x1024" }
+        },
+        "required": ["prompt"]
+      },
+      "meta": {
+        "description": "Image generation via a configured provider adapter (set IMAGE_GENERATE_URL)."
+      },
+      "type": "http",
+      "http": {
+        "url": "${IMAGE_GENERATE_URL}",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer ${IMAGE_GENERATE_TOKEN}"
+        },
+        "timeout_ms": 20000
+      }
+    }
+  ]
+}
+
+

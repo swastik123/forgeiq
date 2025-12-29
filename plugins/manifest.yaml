@@ -1,0 +1,17 @@
+plugins:
+  # These are OFFICIAL sample packs. They are safe templates:
+  # tools are only loaded when PLUGINS_ENABLED=true and each tool has a non-empty URL after env expansion.
+  - id: web-pack
+    enabled: true
+    tools_file: tools/web.json
+  - id: math-pack
+    enabled: true
+    tools_file: tools/math.json
+  - id: github-pack
+    enabled: true
+    tools_file: tools/github.json
+  - id: image-pack
+    enabled: true
+    tools_file: tools/image.json
+
+

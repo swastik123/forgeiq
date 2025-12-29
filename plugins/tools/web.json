@@ -1,0 +1,57 @@
+{
+  "tools": [
+    {
+      "name": "web.search",
+      "version": "v1",
+      "tags": ["read", "web", "search"],
+      "scopes": ["web:read"],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "description": "Search query" },
+          "limit": { "type": "number", "default": 5 }
+        },
+        "required": ["q"]
+      },
+      "meta": {
+        "description": "Web search via a configured provider (set WEB_SEARCH_URL + auth env vars)."
+      },
+      "type": "http",
+      "http": {
+        "url": "${WEB_SEARCH_URL}",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer ${WEB_SEARCH_TOKEN}"
+        },
+        "timeout_ms": 8000
+      }
+    },
+    {
+      "name": "web.fetch",
+      "version": "v1",
+      "tags": ["read", "web", "fetch"],
+      "scopes": ["web:read"],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" }
+        },
+        "required": ["url"]
+      },
+      "meta": {
+        "description": "Fetch a URL via a configured reader/scraper (set WEB_FETCH_URL)."
+      },
+      "type": "http",
+      "http": {
+        "url": "${WEB_FETCH_URL}",
+        "method": "POST",
+        "headers": {
+          "X-API-Key": "${WEB_FETCH_API_KEY}"
+        },
+        "timeout_ms": 10000
+      }
+    }
+  ]
+}
+
+

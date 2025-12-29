@@ -1,0 +1,101 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/bin/
+/dist/
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.a
+*.o
+*.so
+
+# Test files
+*.test
+coverage.txt
+coverage.html
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker
+.dockerignore
+
+# Kubernetes
+*.kubeconfig
+
+# Python virtual environment (if any)
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtualenv created in repo root (common on macOS)
+/lib/
+/pyvenv.cfg
+/CACHEDIR.TAG
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets
+secrets/
+*.pem
+*.key
+*.crt
+
+# Generated files
+generated/
+*.pb.go
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Installers / local artifacts
+*.pkg
+
+# Built binaries in repo root (local builds)
+/control-orchestrator
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Local development
+.local/
+local/
+
+

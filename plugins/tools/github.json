@@ -1,0 +1,31 @@
+{
+  "tools": [
+    {
+      "name": "github.search_issues",
+      "version": "v1",
+      "tags": ["read", "github"],
+      "scopes": ["github:read"],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "description": "GitHub search query" }
+        },
+        "required": ["q"]
+      },
+      "meta": {
+        "description": "GitHub issue search via a configured proxy/adapter (set GITHUB_SEARCH_URL)."
+      },
+      "type": "http",
+      "http": {
+        "url": "${GITHUB_SEARCH_URL}",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer ${GITHUB_TOKEN}"
+        },
+        "timeout_ms": 8000
+      }
+    }
+  ]
+}
+
+

@@ -1,0 +1,31 @@
+{
+  "tools": [
+    {
+      "name": "math.query",
+      "version": "v1",
+      "tags": ["read", "math"],
+      "scopes": ["math:read"],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "input": { "type": "string", "description": "Math question / query" }
+        },
+        "required": ["input"]
+      },
+      "meta": {
+        "description": "Math/knowledge query via WolframAlpha-style endpoint (set MATH_QUERY_URL)."
+      },
+      "type": "http",
+      "http": {
+        "url": "${MATH_QUERY_URL}",
+        "method": "POST",
+        "headers": {
+          "X-API-Key": "${MATH_QUERY_API_KEY}"
+        },
+        "timeout_ms": 8000
+      }
+    }
+  ]
+}
+
+

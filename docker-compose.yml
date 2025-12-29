@@ -1,0 +1,152 @@
+version: '3.8'
+
+services:
+  postgres:
+    # pgvector-enabled Postgres (so MCP vector tools can run locally)
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: forgeiq
+      POSTGRES_USER: forgeiq
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgeiq"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=forgeiq
+      - POSTGRES_PWD=${POSTGRES_PASSWORD:-changeme}
+      - POSTGRES_SEEDS=postgres
+      # - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+      # - "8088:8088"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  orchestrator:
+    build: .
+    command: /app/orchestrator
+    environment:
+      - PORT=8080
+      - TEMPORAL_HOSTPORT=temporal:7233
+      - STORAGE_TYPE=postgres
+      - STORAGE_DSN=postgres://forgeiq:${POSTGRES_PASSWORD:-changeme}@postgres:5432/forgeiq?sslmode=disable
+      - RULE_AGENT_URL=http://rule-agent:8081
+      - DECISION_AGENT_URL=http://decision-agent:8082
+      - MCP_BASE_URL=http://mcp-server:8090
+    ports:
+      - "8080:8080"
+    depends_on:
+      - temporal
+      - postgres
+      - rule-agent
+      - decision-agent
+      - mcp-server
+
+  worker:
+    build: .
+    command: /app/worker
+    environment:
+      - TEMPORAL_HOSTPORT=temporal:7233
+      - STORAGE_TYPE=postgres
+      - STORAGE_DSN=postgres://forgeiq:${POSTGRES_PASSWORD:-changeme}@postgres:5432/forgeiq?sslmode=disable
+      - RULE_AGENT_URL=http://rule-agent:8081
+      - DECISION_AGENT_URL=http://decision-agent:8082
+      - MCP_BASE_URL=http://mcp-server:8090
+      - AGENT_ROUTER_ENABLED=true
+      - AGENT_ROUTER_DISCOVERY_ENABLED=false
+      - AGENT_ROUTER_REGISTRY_ENABLED=true
+      - AGENT_ROUTER_AGENTS_JSON=[{"id":"rule-local","type":"rule","base_url":"http://rule-agent:8081","tags":["rules"],"task_types":["incident_triage","policy_eval"]},{"id":"decision-local","type":"decision","base_url":"http://decision-agent:8082","tags":["planning"],"task_types":["incident_triage","plan_gen"]}]
+    depends_on:
+      - temporal
+      - postgres
+      - rule-agent
+      - decision-agent
+      - mcp-server
+
+  rule-agent:
+    build: .
+    command: /app/rule-agent
+    environment:
+      - PORT=8081
+      - AGENT_REGISTRY_URL=http://orchestrator:8080
+      - AGENT_BASE_URL=http://rule-agent:8081
+      - AGENT_ID=rule-local
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+
+  decision-agent:
+    build: .
+    command: /app/decision-agent
+    environment:
+      - PORT=8082
+      - AGENT_REGISTRY_URL=http://orchestrator:8080
+      - AGENT_BASE_URL=http://decision-agent:8082
+      - AGENT_ID=decision-local
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres
+
+  mcp-server:
+    build: .
+    command: /app/mcp-server
+    environment:
+      - PORT=8090
+      - VECTOR_ENABLED=true
+      - VECTOR_DIM=8
+      - VECTOR_TABLE=mcp_vectors
+      - VECTOR_DSN=postgres://forgeiq:${POSTGRES_PASSWORD:-changeme}@postgres:5432/forgeiq?sslmode=disable
+      - ELASTIC_URL=http://elasticsearch:9200
+      - ELASTIC_INDEX=logs-forgeiq
+      - EMBEDDINGS_PROVIDER=hash
+      - EMBEDDINGS_DIM=8
+      - RAG_ALLOW_EXTERNAL=true
+      - RAG_ALLOWED_DATASETS=internal_docs,external_logs
+      - RAG_DATASETS_JSON=[{"id":"internal_docs","type":"internal","name":"Internal Docs","description":"Chunks you control in pgvector","tags":["internal","docs"],"internal":{"namespace":"default"}},{"id":"external_logs","type":"external","name":"External Logs","description":"Elastic index logs-forgeiq","tags":["logs","elastic"],"external":{"adapter":"elastic","index":"logs-forgeiq"}}]
+    ports:
+      - "8090:8090"
+    depends_on:
+      - postgres
+      - elasticsearch
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+  
+  temporal-ui:
+    image: temporalio/ui:latest
+    ports:
+      - "8088:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      - temporal
+
+volumes:
+  postgres_data:
+
+
