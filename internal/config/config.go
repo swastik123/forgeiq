@@ -45,6 +45,9 @@ type Config struct {
 
 	// Runtime tool plugins (loaded at startup)
 	Plugins PluginsConfig
+
+	// Multi-tenancy / inbound auth for control plane HTTP APIs
+	Tenancy TenancyConfig
 }
 
 // ServerConfig holds server configuration
@@ -57,7 +60,7 @@ type ServerConfig struct {
 
 // TemporalConfig holds Temporal configuration
 type TemporalConfig struct {
-	HostPort string
+	HostPort  string
 	TaskQueue string
 }
 
@@ -81,7 +84,7 @@ type AuthConfig struct {
 
 // ObservabilityConfig holds observability configuration
 type ObservabilityConfig struct {
-	LogLevel      string
+	LogLevel       string
 	JaegerEndpoint string
 	MetricsEnabled bool
 	TracingEnabled bool
@@ -162,10 +165,10 @@ type AgentRouterConfig struct {
 	SoftmaxTemperature float64
 
 	// Runtime-learned weights (bandit-ish). Computed from eval_runs and injected into scoring.
-	RuntimeWeightsEnabled bool
-	RuntimeWeightsMax     float64
-	RuntimeWeightsMinRuns int
-	RuntimeWeightsWindowHours int
+	RuntimeWeightsEnabled        bool
+	RuntimeWeightsMax            float64
+	RuntimeWeightsMinRuns        int
+	RuntimeWeightsWindowHours    int
 	RuntimeWeightsRefreshSeconds int
 
 	// JSON array of agent entries.
@@ -195,6 +198,29 @@ type PluginsConfig struct {
 	HTTPAllowlist string
 	// Default timeout for HTTP tools, in milliseconds.
 	DefaultHTTPTimeoutMS int
+}
+
+// TenancyConfig controls tenant authentication and isolation.
+// This is used by the control-orchestrator HTTP API layer (inbound requests).
+type TenancyConfig struct {
+	Enabled bool
+	// If true, requests must authenticate as a tenant (API key or JWT).
+	RequireAuth bool
+
+	// API key auth: comma-separated "tenant:key" pairs.
+	// Example: TENANCY_API_KEYS="acme:abc123,globex:def456"
+	APIKeys string
+
+	// JWT auth configuration
+	JWTIssuer      string // optional
+	JWTAudience    string // optional
+	JWTTenantClaim string // claim name for tenant id (default "tenant_id")
+
+	// One of the following should be provided for signature verification:
+	// - HS256: shared secret
+	JWTHS256Secret string
+	// - RS256: PEM-encoded public key
+	JWTRS256PublicKeyPEM string
 }
 
 // LLMRouterConfig configures LLM-assisted agent routing.
@@ -230,15 +256,15 @@ func Load() *Config {
 		DecisionAgentURL: getEnv("DECISION_AGENT_URL", "http://localhost:8082"),
 		MCPBaseURL:       getEnv("MCP_BASE_URL", "http://localhost:8090"),
 		Auth: AuthConfig{
-			RuleAgentAPIKey:     getEnv("RULE_AGENT_API_KEY", ""),
-			DecisionAgentAPIKey: getEnv("DECISION_AGENT_API_KEY", ""),
-			MCPAPIKey:           getEnv("MCP_API_KEY", ""),
-			RuleAgentToken:      getEnv("RULE_AGENT_TOKEN", ""),
-			DecisionAgentToken:  getEnv("DECISION_AGENT_TOKEN", ""),
-			MCPToken:            getEnv("MCP_TOKEN", ""),
-			RuleAgentHeaders:    getEnv("RULE_AGENT_HEADERS", ""),
+			RuleAgentAPIKey:      getEnv("RULE_AGENT_API_KEY", ""),
+			DecisionAgentAPIKey:  getEnv("DECISION_AGENT_API_KEY", ""),
+			MCPAPIKey:            getEnv("MCP_API_KEY", ""),
+			RuleAgentToken:       getEnv("RULE_AGENT_TOKEN", ""),
+			DecisionAgentToken:   getEnv("DECISION_AGENT_TOKEN", ""),
+			MCPToken:             getEnv("MCP_TOKEN", ""),
+			RuleAgentHeaders:     getEnv("RULE_AGENT_HEADERS", ""),
 			DecisionAgentHeaders: getEnv("DECISION_AGENT_HEADERS", ""),
-			MCPHeaders:          getEnv("MCP_HEADERS", ""),
+			MCPHeaders:           getEnv("MCP_HEADERS", ""),
 		},
 		Observability: ObservabilityConfig{
 			LogLevel:       getEnv("LOG_LEVEL", "info"),
@@ -278,22 +304,22 @@ func Load() *Config {
 			MaxDocs:         getEnvInt("RAG_MAX_DOCS", 200),
 		},
 		AgentRouter: AgentRouterConfig{
-			Enabled:          getEnvBool("AGENT_ROUTER_ENABLED", false),
-			Mode:             getEnv("AGENT_ROUTER_MODE", "simple"),
-			Selection:        getEnv("AGENT_ROUTER_SELECTION", "deterministic"),
-			TieBreakRandom:   getEnvBool("AGENT_ROUTER_TIEBREAK_RANDOM", false),
-			TieEpsilon:       getEnvFloat("AGENT_ROUTER_TIE_EPSILON", 0.000001),
-			SoftmaxTopN:      getEnvInt("AGENT_ROUTER_SOFTMAX_TOP_N", 5),
-			SoftmaxTemperature: getEnvFloat("AGENT_ROUTER_SOFTMAX_TEMPERATURE", 1.0),
-			RuntimeWeightsEnabled: getEnvBool("AGENT_ROUTER_RUNTIME_WEIGHTS_ENABLED", false),
-			RuntimeWeightsMax:     getEnvFloat("AGENT_ROUTER_RUNTIME_WEIGHTS_MAX", 5.0),
-			RuntimeWeightsMinRuns: getEnvInt("AGENT_ROUTER_RUNTIME_WEIGHTS_MIN_RUNS", 30),
-			RuntimeWeightsWindowHours: getEnvInt("AGENT_ROUTER_RUNTIME_WEIGHTS_WINDOW_HOURS", 168),
+			Enabled:                      getEnvBool("AGENT_ROUTER_ENABLED", false),
+			Mode:                         getEnv("AGENT_ROUTER_MODE", "simple"),
+			Selection:                    getEnv("AGENT_ROUTER_SELECTION", "deterministic"),
+			TieBreakRandom:               getEnvBool("AGENT_ROUTER_TIEBREAK_RANDOM", false),
+			TieEpsilon:                   getEnvFloat("AGENT_ROUTER_TIE_EPSILON", 0.000001),
+			SoftmaxTopN:                  getEnvInt("AGENT_ROUTER_SOFTMAX_TOP_N", 5),
+			SoftmaxTemperature:           getEnvFloat("AGENT_ROUTER_SOFTMAX_TEMPERATURE", 1.0),
+			RuntimeWeightsEnabled:        getEnvBool("AGENT_ROUTER_RUNTIME_WEIGHTS_ENABLED", false),
+			RuntimeWeightsMax:            getEnvFloat("AGENT_ROUTER_RUNTIME_WEIGHTS_MAX", 5.0),
+			RuntimeWeightsMinRuns:        getEnvInt("AGENT_ROUTER_RUNTIME_WEIGHTS_MIN_RUNS", 30),
+			RuntimeWeightsWindowHours:    getEnvInt("AGENT_ROUTER_RUNTIME_WEIGHTS_WINDOW_HOURS", 168),
 			RuntimeWeightsRefreshSeconds: getEnvInt("AGENT_ROUTER_RUNTIME_WEIGHTS_REFRESH_SECONDS", 120),
-			AgentsJSON:       getEnv("AGENT_ROUTER_AGENTS_JSON", ""),
-			DiscoveryEnabled: getEnvBool("AGENT_ROUTER_DISCOVERY_ENABLED", false),
-			DiscoveryPath:    getEnv("AGENT_ROUTER_DISCOVERY_PATH", "/.well-known/agent.json"),
-			RegistryEnabled:  getEnvBool("AGENT_ROUTER_REGISTRY_ENABLED", false),
+			AgentsJSON:                   getEnv("AGENT_ROUTER_AGENTS_JSON", ""),
+			DiscoveryEnabled:             getEnvBool("AGENT_ROUTER_DISCOVERY_ENABLED", false),
+			DiscoveryPath:                getEnv("AGENT_ROUTER_DISCOVERY_PATH", "/.well-known/agent.json"),
+			RegistryEnabled:              getEnvBool("AGENT_ROUTER_REGISTRY_ENABLED", false),
 			LLM: LLMRouterConfig{
 				Enabled:       getEnvBool("AGENT_ROUTER_LLM_ENABLED", false),
 				URL:           getEnv("AGENT_ROUTER_LLM_URL", ""),
@@ -309,6 +335,16 @@ func Load() *Config {
 			ManifestPath:         getEnv("PLUGINS_MANIFEST_PATH", "plugins/manifest.yaml"),
 			HTTPAllowlist:        getEnv("PLUGINS_HTTP_ALLOWLIST", "localhost,127.0.0.1,::1"),
 			DefaultHTTPTimeoutMS: getEnvInt("PLUGINS_HTTP_TIMEOUT_MS", 8000),
+		},
+		Tenancy: TenancyConfig{
+			Enabled:              getEnvBool("TENANCY_ENABLED", false),
+			RequireAuth:          getEnvBool("TENANCY_REQUIRE_AUTH", false),
+			APIKeys:              getEnv("TENANCY_API_KEYS", ""),
+			JWTIssuer:            getEnv("TENANCY_JWT_ISSUER", ""),
+			JWTAudience:          getEnv("TENANCY_JWT_AUDIENCE", ""),
+			JWTTenantClaim:       getEnv("TENANCY_JWT_TENANT_CLAIM", "tenant_id"),
+			JWTHS256Secret:       getEnv("TENANCY_JWT_HS256_SECRET", ""),
+			JWTRS256PublicKeyPEM: getEnv("TENANCY_JWT_RS256_PUBLIC_KEY_PEM", ""),
 		},
 	}
 }

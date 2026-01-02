@@ -63,9 +63,16 @@ go run ./cmd/data-mcp-server
 curl -X POST http://localhost:8080/run \
   -H "Content-Type: application/json" \
   -d '{
-    "incident_id": "INC-123",
-    "service": "payments",
-    "symptom": "high error rate"
+    "tenant_id": "acme",
+    "type": "incident_triage",
+    "input": {
+      "incident_id": "INC-123",
+      "service": "payments",
+      "symptom": "high error rate"
+    },
+    "metadata": {
+      "planner_tags": "sre,incident,payments"
+    }
   }'
 ```
 
@@ -75,6 +82,8 @@ Response:
   "workflow_id": "task-20240101-120000.000",
   "run_id": "...",
   "task_id": "task-20240101-120000.000",
+  "task_type": "incident_triage",
+  "tenant_id": "acme",
   "status_url": "/status/task-20240101-120000.000",
   "result_url": "/result/task-20240101-120000.000",
   "approve_url": "/approve/task-20240101-120000.000"
@@ -123,6 +132,16 @@ STORAGE_DSN=postgres://user:pass@localhost:5432/forgeiq?sslmode=disable
 RULE_AGENT_URL=http://localhost:8081
 DECISION_AGENT_URL=http://localhost:8082
 MCP_BASE_URL=http://localhost:8090
+
+# Multi-tenancy (optional)
+TENANCY_ENABLED=true
+TENANCY_REQUIRE_AUTH=false
+# API key mapping: tenant:key pairs
+TENANCY_API_KEYS="acme:devkey"
+# JWT verification (choose one)
+# TENANCY_JWT_HS256_SECRET="devsecret"
+# TENANCY_JWT_RS256_PUBLIC_KEY_PEM="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+TENANCY_JWT_TENANT_CLAIM=tenant_id
 ```
 
 ### Using Configuration File
@@ -226,9 +245,12 @@ curl http://localhost:8080/health
 RESPONSE=$(curl -s -X POST http://localhost:8080/run \
   -H "Content-Type: application/json" \
   -d '{
-    "incident_id": "INC-123",
-    "service": "payments",
-    "symptom": "high error rate"
+    "type": "incident_triage",
+    "input": {
+      "incident_id": "INC-123",
+      "service": "payments",
+      "symptom": "high error rate"
+    }
   }')
 
 TASK_ID=$(echo $RESPONSE | jq -r '.task_id')

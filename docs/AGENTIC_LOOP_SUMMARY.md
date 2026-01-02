@@ -65,7 +65,7 @@ GET /result/{taskID}
 ```bash
 # 1. Start workflow
 TASK_ID=$(curl -X POST http://localhost:8080/run \
-  -d '{"incident_id":"INC-123","service":"payments","symptom":"high error rate"}' \
+  -d '{"tenant_id":"acme","type":"incident_triage_agentic","input":{"incident_id":"INC-123","service":"payments","symptom":"high error rate"}}' \
   | jq -r '.task_id')
 
 # 2. Check status (workflow is iterating)

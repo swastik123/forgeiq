@@ -150,6 +150,8 @@ func main() {
 	w := worker.New(c, temporal.TaskQueue, worker.Options{})
 
 	w.RegisterWorkflow(temporal.IncidentWorkflow)
+	w.RegisterWorkflow(temporal.IncidentWorkflowIterative)
+	w.RegisterWorkflow(temporal.IncidentWorkflowWithAgenticLoop)
 	w.RegisterActivity(acts)
 
 	// Setup graceful shutdown

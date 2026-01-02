@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -12,8 +14,10 @@ import (
 	"forgeiq/internal/agent/strategy"
 	"forgeiq/internal/config"
 	"forgeiq/internal/controlplane/contracts"
+	"forgeiq/internal/controlplane/interfaces"
 	"forgeiq/internal/controlplane/temporal"
 	"forgeiq/internal/eval"
+	"forgeiq/internal/middleware"
 	"forgeiq/internal/observability"
 	"forgeiq/internal/registry"
 	mcpclient "forgeiq/internal/transport/mcp"
@@ -99,9 +103,22 @@ func main() {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
+
+		// Validate request shape early (before any network calls).
+		if err := validateStrategyRunRequest(req.Strategy, req.State, req.Budget.MaxIterations, req.Budget.MaxToolCalls, req.Budget.MaxWallTimeMS, req.Model); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		mode := strings.ToLower(strings.TrimSpace(req.Strategy))
 		if mode == "" {
 			mode = "function_calling"
+		}
+
+		// Sanity check MCP base URL (gives a clearer error than "connection refused" later).
+		if err := validateHTTPBaseURL(cfg.MCPBaseURL); err != nil {
+			http.Error(w, "invalid MCP_BASE_URL: "+err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		// Build tool client (MCP) and fetch tool catalog
@@ -111,6 +128,11 @@ func main() {
 		tools, err := tc.ListTools(ctx)
 		if err != nil {
 			http.Error(w, "failed to list tools: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		// The strategy loop's "model" is implemented via MCP tool `llm.chat:v1`. Fail fast if missing.
+		if !hasTool(tools, "llm.chat", "v1") {
+			http.Error(w, "required tool missing from MCP: llm.chat:v1 (ensure data-mcp-server is running and registered)", http.StatusBadGateway)
 			return
 		}
 
@@ -166,6 +188,10 @@ func main() {
 		switch r.Method {
 		case http.MethodGet:
 			typ := r.URL.Query().Get("type")
+			if typ != "" && typ != "rule" && typ != "decision" {
+				http.Error(w, "invalid type (must be 'rule' or 'decision')", http.StatusBadRequest)
+				return
+			}
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
 			agents, err := agentStore.ListAgents(ctx, registry.AgentFilter{Type: typ, Limit: 200})
@@ -227,7 +253,9 @@ func main() {
 	})
 
 	// Start workflow (async)
-	// POST /run  body: {"incident_id":"INC-123","service":"payments","symptom":"high error rate"}
+	// POST /run
+	// New body: {"tenant_id":"t1","type":"incident_triage","input":{...},"metadata":{...}}
+	// Backward compatible: body can be any JSON object; it will be treated as task.input with default type.
 	mux.HandleFunc("/run", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
@@ -237,27 +265,86 @@ func main() {
 			return
 		}
 
-		var in map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		var raw map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 			logger.Error("failed to decode request body", zap.Error(err))
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 
-		taskID := "task-" + time.Now().Format("20060102-150405.000")
+		tenantID := ""
 
+		// Parse request in a backward-compatible way.
+		// Preferred: {"tenant_id":"...","type":"...","input":{...},"metadata":{...}}
+		taskType := ""
+		taskInput := map[string]any{}
+		taskMeta := map[string]string{}
+
+		if v, ok := raw["tenant_id"].(string); ok {
+			tenantID = strings.TrimSpace(v)
+		}
+		if v, ok := raw["type"].(string); ok {
+			taskType = strings.TrimSpace(v)
+		}
+		if v, ok := raw["metadata"].(map[string]any); ok && v != nil {
+			for k, vv := range v {
+				ks := strings.TrimSpace(k)
+				if ks == "" {
+					continue
+				}
+				// metadata is string->string for now; coerce scalars to string
+				taskMeta[ks] = fmt.Sprint(vv)
+			}
+		}
+		if v, ok := raw["input"].(map[string]any); ok && v != nil {
+			taskInput = v
+		} else {
+			// Backward compat: treat entire request as input if "input" is not present.
+			taskInput = raw
+		}
+
+		if taskType == "" {
+			taskType = "incident_triage"
+		}
+
+		// Enforce tenant id derived from authentication (if present).
+		authed := middleware.TenantFromContext(r.Context())
+		if strings.TrimSpace(authed.TenantID) != "" {
+			if tenantID != "" && tenantID != authed.TenantID {
+				http.Error(w, "tenant_id does not match authenticated tenant", http.StatusForbidden)
+				return
+			}
+			tenantID = authed.TenantID
+		}
+
+		taskID := makeTaskID(tenantID)
 		task := contracts.Task{
 			ID:        taskID,
-			Type:      "incident_triage",
-			Input:     in,
-			Metadata:  map[string]string{},
+			TenantID:  tenantID,
+			Type:      taskType,
+			Input:     taskInput,
+			Metadata:  taskMeta,
 			CreatedAt: time.Now(),
+		}
+
+		// Workflow registry (task.type -> workflow)
+		var wf any
+		switch task.Type {
+		case "incident_triage":
+			wf = temporal.IncidentWorkflow
+		case "incident_triage_iterative":
+			wf = temporal.IncidentWorkflowIterative
+		case "incident_triage_agentic":
+			wf = temporal.IncidentWorkflowWithAgenticLoop
+		default:
+			http.Error(w, "unknown task type: "+task.Type, http.StatusBadRequest)
+			return
 		}
 
 		we, err := tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 			ID:        task.ID,
 			TaskQueue: cfg.Temporal.TaskQueue,
-		}, temporal.IncidentWorkflow, task)
+		}, wf, task)
 
 		if err != nil {
 			logger.Error("failed to execute workflow", zap.Error(err), zap.String("task_id", taskID))
@@ -276,6 +363,8 @@ func main() {
 			"workflow_id": we.GetID(),
 			"run_id":      we.GetRunID(),
 			"task_id":     task.ID,
+			"task_type":   task.Type,
+			"tenant_id":   task.TenantID,
 			"status_url":  "/status/" + task.ID,
 			"result_url":  "/result/" + task.ID,
 			"approve_url": "/approve/" + task.ID,
@@ -386,6 +475,7 @@ func main() {
 		defer ticker.Stop()
 
 		var lastState string
+		var lastUpdated string
 		for {
 			select {
 			case <-r.Context().Done():
@@ -403,8 +493,11 @@ func main() {
 					writeEvent("error", map[string]any{"error": err.Error()})
 					continue
 				}
-				if st.State != lastState {
+				// Emit a "status" event whenever the workflow reports a new UpdatedAtRFC or state change.
+				// This makes waiting-for-human status changes (prompt, waiting_since, etc.) visible immediately.
+				if st.State != lastState || st.UpdatedAtRFC != lastUpdated {
 					lastState = st.State
+					lastUpdated = st.UpdatedAtRFC
 					writeEvent("status", st)
 				} else {
 					// lightweight heartbeat with latest timestamp so UI can show it's alive
@@ -609,7 +702,9 @@ func main() {
 	})
 
 	// Apply middleware
-	handler := observability.HTTPLoggingMiddleware(logger, mux)
+	handler := http.Handler(mux)
+	handler = middleware.TenantAuthMiddleware(cfg)(handler)
+	handler = observability.HTTPLoggingMiddleware(logger, handler)
 	handler = observability.HTTPMetricsMiddleware(metrics, handler)
 
 	// Create server with timeouts
@@ -627,4 +722,88 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+var tenantIDRe = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
+
+func sanitizeTenantID(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = tenantIDRe.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if len(s) > 64 {
+		s = s[:64]
+	}
+	return s
+}
+
+func makeTaskID(tenantID string) string {
+	ts := time.Now().Format("20060102-150405.000")
+	t := sanitizeTenantID(tenantID)
+	if t == "" {
+		return "task-" + ts
+	}
+	return "tenant-" + t + "-task-" + ts
+}
+
+func hasTool(tools []interfaces.ToolInfo, name, version string) bool {
+	name = strings.TrimSpace(name)
+	version = strings.TrimSpace(version)
+	for _, t := range tools {
+		if t.Name == name && t.Version == version {
+			return true
+		}
+	}
+	return false
+}
+
+func validateHTTPBaseURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported scheme %q", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("missing host")
+	}
+	return nil
+}
+
+func validateStrategyRunRequest(mode string, state strategy.ConversationState, maxIterations, maxToolCalls, maxWallTimeMS int, model strategy.ModelConfig) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = "function_calling"
+	}
+	if mode != "function_calling" && mode != "react" {
+		return fmt.Errorf("unknown strategy: %s", mode)
+	}
+	if maxIterations < 0 || maxToolCalls < 0 || maxWallTimeMS < 0 {
+		return fmt.Errorf("budget values must be >= 0")
+	}
+	// This endpoint currently implements model calls via MCP tool `llm.chat`.
+	if p := strings.ToLower(strings.TrimSpace(model.Provider)); p != "" && p != "mcp" {
+		return fmt.Errorf("unsupported model.provider %q for /strategy/run (only 'mcp' is supported here)", model.Provider)
+	}
+	if len(state.Messages) == 0 {
+		return fmt.Errorf("state.messages is required")
+	}
+	foundUser := false
+	for _, m := range state.Messages {
+		if m.Role == strategy.RoleUser && strings.TrimSpace(m.Content) != "" {
+			foundUser = true
+			break
+		}
+	}
+	if !foundUser {
+		return fmt.Errorf("state.messages must include at least one non-empty user message")
+	}
+	return nil
 }

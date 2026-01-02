@@ -113,14 +113,18 @@ const (
 )
 
 type WorkflowStatus struct {
-	State        string         `json:"state"` // running | needs_approval | completed | failed | denied
-	TaskID       string         `json:"task_id"`
-	BlockedStep  string         `json:"blocked_step,omitempty"`
-	BlockedTool  string         `json:"blocked_tool,omitempty"`
-	LastError    string         `json:"last_error,omitempty"`
-	ToolCalls    int            `json:"tool_calls"`
-	UpdatedAtRFC string         `json:"updated_at_rfc"`
-	Evidence     map[string]any `json:"evidence,omitempty"`
+	State           string         `json:"state"` // running | needs_approval | completed | failed | denied
+	TaskID          string         `json:"task_id"`
+	BlockedStep     string         `json:"blocked_step,omitempty"`
+	BlockedTool     string         `json:"blocked_tool,omitempty"`
+	LastError       string         `json:"last_error,omitempty"`
+	ToolCalls       int            `json:"tool_calls"`
+	UpdatedAtRFC    string         `json:"updated_at_rfc"`
+	NeedsHumanInput bool           `json:"needs_human_input,omitempty"`
+	WaitingOnSignal string         `json:"waiting_on_signal,omitempty"` // approval | feedback | refine | continue | stop
+	WaitingSinceRFC string         `json:"waiting_since_rfc,omitempty"`
+	Prompt          string         `json:"prompt,omitempty"`
+	Evidence        map[string]any `json:"evidence,omitempty"`
 }
 
 func IncidentWorkflow(ctx workflow.Context, task contracts.Task) (contracts.Artifact, error) {
@@ -212,6 +216,10 @@ func IncidentWorkflow(ctx workflow.Context, task contracts.Task) (contracts.Arti
 			status.State = "needs_approval"
 			status.BlockedStep = step.StepID
 			status.BlockedTool = step.ToolName
+			status.NeedsHumanInput = true
+			status.WaitingOnSignal = SignalApproval
+			status.WaitingSinceRFC = now()
+			status.Prompt = "Waiting for approval to proceed with a write operation"
 			status.UpdatedAtRFC = now()
 
 			var approved bool
@@ -238,6 +246,10 @@ func IncidentWorkflow(ctx workflow.Context, task contracts.Task) (contracts.Arti
 			status.State = "running"
 			status.BlockedStep = ""
 			status.BlockedTool = ""
+			status.NeedsHumanInput = false
+			status.WaitingOnSignal = ""
+			status.WaitingSinceRFC = ""
+			status.Prompt = ""
 			status.UpdatedAtRFC = now()
 		}
 

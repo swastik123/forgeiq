@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"forgeiq/internal/catalog"
 	"forgeiq/internal/config"
@@ -108,6 +110,24 @@ func (a *Activities) GetPlan(ctx context.Context, task contracts.Task, policy co
 func (a *Activities) pickA2AClient(ctx context.Context, agentType string, task contracts.Task) (*a2a.Client, *a2a.Agent, error) {
 	// Use Agent Router if enabled/configured; fallback to legacy single URL config.
 	if a != nil && a.Config != nil && a.Config.AgentRouter.Enabled {
+		// Allow callers to pass routing hints for planner selection via task metadata.
+		// Example: task.Metadata["planner_tags"] = "sre,incident,payments"
+		// Optional per-agent-type override: task.Metadata["planner_tags_decision"], task.Metadata["planner_tags_rule"]
+		tags := []string{agentType}
+		if strings.TrimSpace(task.TenantID) != "" {
+			// Add a stable tenant tag so routers/registries can isolate by tenant if desired.
+			tags = append(tags, "tenant:"+strings.TrimSpace(task.TenantID))
+		}
+		if task.Metadata != nil {
+			if v := strings.TrimSpace(task.Metadata["planner_tags_"+agentType]); v != "" {
+				tags = append(tags, parseCSVTags(v)...)
+			} else if v := strings.TrimSpace(task.Metadata["planner_tags"]); v != "" {
+				tags = append(tags, parseCSVTags(v)...)
+			}
+		}
+		tags = uniqueStrings(tags)
+		sort.Strings(tags)
+
 		r := a.Router
 		if r == nil {
 			rr, err := a2a.NewAgentRouterFromConfig(a.Config)
@@ -127,7 +147,7 @@ func (a *Activities) pickA2AClient(ctx context.Context, agentType string, task c
 		res, err := r.Route(ctx, a2a.RouteRequest{
 			AgentType: agentType,
 			TaskType:  task.Type,
-			Tags:      []string{agentType},
+			Tags:      tags,
 			Goal:      task.Type,
 			Seed:      task.ID,
 		})
@@ -228,4 +248,31 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+func parseCSVTags(s string) []string {
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func uniqueStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }

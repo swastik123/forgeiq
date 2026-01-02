@@ -56,7 +56,8 @@ type RefinementEntry struct {
 // 3. Optionally refine the plan based on results
 // 4. Get user feedback if needed
 // 5. Continue iterating until goal is met or max iterations reached
-func AgenticLoop(ctx workflow.Context, task contracts.Task, config AgenticLoopConfig, policy contracts.PolicyDecision) (contracts.Artifact, error) {
+func AgenticLoop(ctx workflow.Context, task contracts.Task, config AgenticLoopConfig, policy contracts.PolicyDecision, status *WorkflowStatus) (contracts.Artifact, error) {
+	nowRFC := func() string { return workflow.Now(ctx).Format(time.RFC3339) }
 	state := AgenticLoopState{
 		Iteration:   0,
 		Evidence:    make(map[string]any),
@@ -81,6 +82,10 @@ func AgenticLoop(ctx workflow.Context, task contracts.Task, config AgenticLoopCo
 	}
 	state.CurrentPlan = plan
 	state.Evidence["initial_plan"] = plan
+	if status != nil {
+		status.Evidence["initial_plan"] = plan
+		status.UpdatedAtRFC = nowRFC()
+	}
 
 	for state.Iteration < config.MaxIterations {
 		state.Iteration++
@@ -129,10 +134,35 @@ func AgenticLoop(ctx workflow.Context, task contracts.Task, config AgenticLoopCo
 				state.NeedsApproval = true
 				state.ApprovalReason = "Iteration failed: " + err.Error()
 
+				// Update workflow-visible status so clients can see we're waiting.
+				if status != nil {
+					status.State = "waiting_for_feedback"
+					status.NeedsHumanInput = true
+					status.WaitingOnSignal = SignalFeedback
+					status.WaitingSinceRFC = nowRFC()
+					status.Prompt = state.ApprovalReason
+					status.UpdatedAtRFC = nowRFC()
+				}
+				// Also store in evidence for debugging.
+				state.Evidence["waiting"] = map[string]any{
+					"needs_human_input": true,
+					"waiting_on_signal": SignalFeedback,
+					"prompt":            state.ApprovalReason,
+					"waiting_since_rfc": nowRFC(),
+				}
+
 				// Wait for user feedback
 				var feedback FeedbackEntry
 				feedbackChan.Receive(ctx, &feedback)
 				state.Feedback = append(state.Feedback, feedback)
+				if status != nil {
+					status.State = "running"
+					status.NeedsHumanInput = false
+					status.WaitingOnSignal = ""
+					status.WaitingSinceRFC = ""
+					status.Prompt = ""
+					status.UpdatedAtRFC = nowRFC()
+				}
 
 				if feedback.Action == "stop" {
 					break

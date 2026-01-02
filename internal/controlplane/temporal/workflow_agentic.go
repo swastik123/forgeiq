@@ -69,7 +69,7 @@ func IncidentWorkflowWithAgenticLoop(ctx workflow.Context, task contracts.Task) 
 	}
 
 	// 3) Execute agentic loop
-	loopResult, err := AgenticLoop(ctx, task, loopConfig, pd)
+	loopResult, err := AgenticLoop(ctx, task, loopConfig, pd, &status)
 	if err != nil {
 		status.State = "failed"
 		status.LastError = err.Error()

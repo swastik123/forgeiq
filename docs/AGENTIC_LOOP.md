@@ -98,9 +98,13 @@ func AgenticLoopWithFeedback(ctx workflow.Context, task Task) {
 curl -X POST http://localhost:8080/run \
   -H "Content-Type: application/json" \
   -d '{
-    "incident_id": "INC-123",
-    "service": "payments",
-    "symptom": "high error rate"
+    "tenant_id": "acme",
+    "type": "incident_triage_agentic",
+    "input": {
+      "incident_id": "INC-123",
+      "service": "payments",
+      "symptom": "high error rate"
+    }
   }'
 ```
 
@@ -249,9 +253,8 @@ export AGENTIC_LOOP_AUTO_REFINE=true
 # 1. Start incident response
 TASK_ID=$(curl -X POST http://localhost:8080/run \
   -H "Content-Type: application/json" \
-  -d '{"incident_id":"INC-123","service":"payments","symptom":"high error rate"}' \
+  -d '{"tenant_id":"acme","type":"incident_triage_agentic","input":{"incident_id":"INC-123","service":"payments","symptom":"high error rate"}}' \
   | jq -r '.task_id')
-
 # 2. Check status (workflow is iterating)
 curl http://localhost:8080/status/$TASK_ID | jq
 

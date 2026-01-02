@@ -2,6 +2,15 @@
 
 ## Orchestrator API (`:8080`)
 
+### Authentication (Multi-tenancy)
+
+If `TENANCY_ENABLED=true`, the Orchestrator can authenticate requests using **either**:
+
+- **API Key**: `X-API-Key: <key>`
+- **JWT**: `Authorization: Bearer <jwt>`
+
+When `TENANCY_REQUIRE_AUTH=true`, requests without one of the above are rejected with `401`.
+
 ### Start Workflow
 
 Start a new workflow execution.
@@ -11,9 +20,16 @@ Start a new workflow execution.
 **Request Body**:
 ```json
 {
-  "incident_id": "INC-123",
-  "service": "payments",
-  "symptom": "high error rate"
+  "tenant_id": "acme",
+  "type": "incident_triage",
+  "input": {
+    "incident_id": "INC-123",
+    "service": "payments",
+    "symptom": "high error rate"
+  },
+  "metadata": {
+    "planner_tags": "sre,incident,payments"
+  }
 }
 ```
 
@@ -23,6 +39,8 @@ Start a new workflow execution.
   "workflow_id": "task-20240101-120000.000",
   "run_id": "...",
   "task_id": "task-20240101-120000.000",
+  "task_type": "incident_triage",
+  "tenant_id": "acme",
   "status_url": "/status/task-20240101-120000.000",
   "result_url": "/result/task-20240101-120000.000",
   "approve_url": "/approve/task-20240101-120000.000"
