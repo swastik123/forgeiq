@@ -1,0 +1,38 @@
+id: rb-default-k8s
+version: v1
+name: Default K8s Restart Runbook
+default_owner: sre
+
+diagnostics:
+  - id: diag-promql-5xx-rate
+    name: Check error rate in Prometheus
+    description: Query Prometheus for 5xx error rate
+    agent: observability
+    task_type: promql_query
+    input:
+      query_type: promql
+      query: 'sum(rate(http_requests_total{service="{{service}}",code=~"5.."}[5m]))'
+      # Optional params: ask the agent to do a range query and compute min/max/avg/last (+ slope).
+      params:
+        range: 15m
+        step: 30s
+        trend: "true"
+      # Optional gate (workflow will fail closed if observability is degraded or signal missing).
+      gate_signal: value
+      gate_op: "<="
+      gate_threshold: 0.1
+    requires_approval: false
+
+actions:
+  - id: action-k8s-restart
+    name: Restart service deployment
+    description: Rollout restart of the service deployment in Kubernetes
+    agent: exec
+    task_type: k8s_restart
+    input:
+      action_type: k8s_restart
+      namespace: default
+      deployment: "{{service}}"
+    requires_approval: true
+
+

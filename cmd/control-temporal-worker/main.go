@@ -89,10 +89,13 @@ func main() {
 			}
 			logger.Info("Agent router loaded from config", zap.Int("agents", len(a2aAgents)))
 		}
+
+		// just a router object but has got all agents , router is a interface that has a Route method
 		rt, err := a2a.NewRouterFromConfig(cfg, a2aAgents)
 		if err != nil {
 			logger.Fatal("failed to build agent router", zap.Error(err))
 		}
+		// TODO : needs to add route method to filter out agents that are not compatible with the task type
 		acts.Router = rt
 	}
 
@@ -152,7 +155,14 @@ func main() {
 	w.RegisterWorkflow(temporal.IncidentWorkflow)
 	w.RegisterWorkflow(temporal.IncidentWorkflowIterative)
 	w.RegisterWorkflow(temporal.IncidentWorkflowWithAgenticLoop)
-	w.RegisterActivity(acts)
+	w.RegisterActivity(acts)	// this is the activities object that has got all the activities
+	w.RegisterWorkflow(temporal.RunbookAutomationWorkflow)
+
+	// move these to acts object
+	w.RegisterActivity(temporal.CallRuleAgentActivity)
+	w.RegisterActivity(temporal.CallRunbookAgentActivity)
+	w.RegisterActivity(temporal.CallObservabilityAgentActivity)
+	w.RegisterActivity(temporal.CallExecAgentActivity)
 
 	// Setup graceful shutdown
 	quit := make(chan os.Signal, 1)

@@ -144,3 +144,34 @@ func main() {
 		logger.Fatal("Server failed", zap.Error(err))
 	}
 }
+
+type RuleAgent struct{}
+
+func (a *RuleAgent) handleTask(w http.ResponseWriter, r *http.Request) {
+	var req contracts.A2ATaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var in contracts.RuleAgentInput
+	if err := json.Unmarshal(req.Input, &in); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	out := contracts.RuleAgentOutput{
+		RunbookID:             "rb-default-k8s",
+		Severity:              "medium",
+		RequiresHumanApproval: true, // for demo: always require approval
+	}
+
+	respBytes, _ := json.Marshal(out)
+	resp := contracts.A2ATaskResponse{
+		Status: "ok",
+		Output: respBytes,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}

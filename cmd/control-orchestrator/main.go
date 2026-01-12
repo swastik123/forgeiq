@@ -115,6 +115,16 @@ func main() {
 			mode = "function_calling"
 		}
 
+		// Determine model provider (request overrides config).
+		provider := strings.ToLower(strings.TrimSpace(req.Model.Provider))
+		if provider == "" {
+			provider = strings.ToLower(strings.TrimSpace(cfg.Reasoning.Provider))
+		}
+		if provider == "" {
+			provider = "mcp"
+		}
+		req.Model.Provider = provider
+
 		// Sanity check MCP base URL (gives a clearer error than "connection refused" later).
 		if err := validateHTTPBaseURL(cfg.MCPBaseURL); err != nil {
 			http.Error(w, "invalid MCP_BASE_URL: "+err.Error(), http.StatusBadRequest)
@@ -130,8 +140,8 @@ func main() {
 			http.Error(w, "failed to list tools: "+err.Error(), http.StatusBadGateway)
 			return
 		}
-		// The strategy loop's "model" is implemented via MCP tool `llm.chat:v1`. Fail fast if missing.
-		if !hasTool(tools, "llm.chat", "v1") {
+		// If the strategy model is implemented via MCP tool `llm.chat:v1`, fail fast if missing.
+		if provider == "mcp" && !hasTool(tools, "llm.chat", "v1") {
 			http.Error(w, "required tool missing from MCP: llm.chat:v1 (ensure data-mcp-server is running and registered)", http.StatusBadGateway)
 			return
 		}
@@ -152,8 +162,22 @@ func main() {
 			Meta:   req.Meta,
 			Tooler: tc,
 		}
-		// Model client uses MCP tool `llm.chat` (demo tool registered by data-mcp-server).
-		in.Modeler = strategy.NewMCPModelClient(tc)
+		switch provider {
+		case "mcp":
+			// Model client uses MCP tool `llm.chat` (demo tool registered by data-mcp-server).
+			in.Modeler = strategy.NewMCPModelClient(tc)
+		case "dspy":
+			if err := validateHTTPBaseURL(cfg.Reasoning.DSPyURL); err != nil {
+				http.Error(w, "invalid DSPY_URL: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			c := strategy.NewDSPyModelClient(cfg.Reasoning.DSPyURL)
+			c.APIKey = cfg.Reasoning.DSPyKey
+			in.Modeler = c
+		default:
+			http.Error(w, "unsupported model.provider: "+provider, http.StatusBadRequest)
+			return
+		}
 
 		var strat strategy.AgentStrategy
 		switch mode {
@@ -336,6 +360,8 @@ func main() {
 			wf = temporal.IncidentWorkflowIterative
 		case "incident_triage_agentic":
 			wf = temporal.IncidentWorkflowWithAgenticLoop
+		case "runbook_automation":
+			wf = temporal.RunbookAutomationWorkflow
 		default:
 			http.Error(w, "unknown task type: "+task.Type, http.StatusBadRequest)
 			return
@@ -788,9 +814,10 @@ func validateStrategyRunRequest(mode string, state strategy.ConversationState, m
 	if maxIterations < 0 || maxToolCalls < 0 || maxWallTimeMS < 0 {
 		return fmt.Errorf("budget values must be >= 0")
 	}
-	// This endpoint currently implements model calls via MCP tool `llm.chat`.
-	if p := strings.ToLower(strings.TrimSpace(model.Provider)); p != "" && p != "mcp" {
-		return fmt.Errorf("unsupported model.provider %q for /strategy/run (only 'mcp' is supported here)", model.Provider)
+	// Provider is validated here only for "obvious wrong values".
+	// The handler may still override empty provider from config and will do final routing.
+	if p := strings.ToLower(strings.TrimSpace(model.Provider)); p != "" && p != "mcp" && p != "dspy" {
+		return fmt.Errorf("unsupported model.provider %q for /strategy/run (supported: mcp|dspy)", model.Provider)
 	}
 	if len(state.Messages) == 0 {
 		return fmt.Errorf("state.messages is required")
