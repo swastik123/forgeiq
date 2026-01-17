@@ -70,14 +70,14 @@ func (c *A2AHTTPClient) call(ctx context.Context, baseURL string, req *contracts
 
 // ---- Activities called by the workflow ----
 
-func CallRuleAgentActivity(ctx context.Context, in RunbookAutomationInput) (contracts.RuleAgentOutput, error) {
+func CallRuleAgentActivity(ctx context.Context, pkt RuleHandoffPacket) (contracts.RuleAgentOutput, error) {
 	client := NewA2AHTTPClient()
 
 	payload := contracts.RuleAgentInput{
-		IncidentID: in.IncidentID,
-		Service:    in.Service,
-		Symptom:    in.Symptom,
-		Metadata:   in.Metadata,
+		IncidentID: pkt.Intent.IncidentID,
+		Service:    pkt.Intent.Service,
+		Symptom:    pkt.Intent.Symptom,
+		Metadata:   pkt.Intent.Metadata,
 	}
 
 	inputBytes, _ := json.Marshal(payload)
@@ -86,9 +86,9 @@ func CallRuleAgentActivity(ctx context.Context, in RunbookAutomationInput) (cont
 		TaskType: "evaluate_rules",
 		Input:    inputBytes,
 		Context: map[string]any{
-			"incident_id": in.IncidentID,
-			"service":     in.Service,
-			"symptom":     in.Symptom,
+			"incident_id": pkt.Intent.IncidentID,
+			"service":     pkt.Intent.Service,
+			"symptom":     pkt.Intent.Symptom,
 		},
 	}
 
@@ -104,13 +104,13 @@ func CallRuleAgentActivity(ctx context.Context, in RunbookAutomationInput) (cont
 	return out, nil
 }
 
-func CallRunbookAgentActivity(ctx context.Context, ruleOut contracts.RuleAgentOutput, in RunbookAutomationInput) (contracts.RunbookAgentOutput, error) {
+func CallRunbookAgentActivity(ctx context.Context, pkt RunbookHandoffPacket) (contracts.RunbookAgentOutput, error) {
 	client := NewA2AHTTPClient()
 
 	payload := contracts.RunbookAgentInput{
-		RunbookID:  ruleOut.RunbookID,
-		Service:    in.Service,
-		IncidentID: in.IncidentID,
+		RunbookID:  pkt.Pointers.SelectedRunbookID,
+		Service:    pkt.Intent.Service,
+		IncidentID: pkt.Intent.IncidentID,
 	}
 	inputBytes, _ := json.Marshal(payload)
 
@@ -119,7 +119,8 @@ func CallRunbookAgentActivity(ctx context.Context, ruleOut contracts.RuleAgentOu
 		TaskType: "get_runbook",
 		Input:    inputBytes,
 		Context: map[string]any{
-			"severity": ruleOut.Severity,
+			// Keep context small; severity can still be passed as a hint when available.
+			"requires_human_approval": pkt.Policy.RequiresHumanApproval,
 		},
 	}
 
@@ -134,42 +135,42 @@ func CallRunbookAgentActivity(ctx context.Context, ruleOut contracts.RuleAgentOu
 	return out, nil
 }
 
-func CallObservabilityAgentActivity(ctx context.Context, step contracts.RunbookStep, in RunbookAutomationInput) (contracts.ObservabilityOutput, error) {
+func CallObservabilityAgentActivity(ctx context.Context, pkt ObservabilityHandoffPacket) (contracts.ObservabilityOutput, error) {
 	client := NewA2AHTTPClient()
 
 	params := map[string]string{}
 	// Allow runbooks to pass params either nested under input.params or as top-level keys.
-	if pm, ok := step.Input["params"].(map[string]any); ok && pm != nil {
+	if pm, ok := pkt.Step.Input["params"].(map[string]any); ok && pm != nil {
 		for k, v := range pm {
 			params[k] = strings.TrimSpace(fmt.Sprint(v))
 		}
 	}
-	if pm, ok := step.Input["params"].(map[string]string); ok && pm != nil {
+	if pm, ok := pkt.Step.Input["params"].(map[string]string); ok && pm != nil {
 		for k, v := range pm {
 			params[k] = strings.TrimSpace(v)
 		}
 	}
 	for _, k := range []string{"start", "end", "step", "range", "range_seconds", "trend"} {
-		if v, ok := step.Input[k]; ok && v != nil {
+		if v, ok := pkt.Step.Input[k]; ok && v != nil {
 			params[k] = strings.TrimSpace(fmt.Sprint(v))
 		}
 	}
 
 	obsIn := contracts.ObservabilityInput{
-		QueryType: fmt.Sprint(step.Input["query_type"]),
-		Query:     fmt.Sprint(step.Input["query"]),
+		QueryType: fmt.Sprint(pkt.Step.Input["query_type"]),
+		Query:     fmt.Sprint(pkt.Step.Input["query"]),
 		Params:    params,
 	}
 	obsBytes, _ := json.Marshal(obsIn)
 
 	req := contracts.A2ATaskRequest{
 		Agent:         contracts.AgentKindObservability,
-		TaskType:      step.TaskType,
+		TaskType:      pkt.Step.TaskType,
 		Input:         obsBytes,
-		CorrelationID: step.ID,
+		CorrelationID: pkt.Step.ID,
 		Context: map[string]any{
-			"incident_id": in.IncidentID,
-			"service":     in.Service,
+			"incident_id": pkt.Intent.IncidentID,
+			"service":     pkt.Intent.Service,
 		},
 	}
 
@@ -184,35 +185,35 @@ func CallObservabilityAgentActivity(ctx context.Context, step contracts.RunbookS
 	return out, nil
 }
 
-func CallExecAgentActivity(ctx context.Context, step contracts.RunbookStep, in RunbookAutomationInput) (contracts.ExecOutput, error) {
+func CallExecAgentActivity(ctx context.Context, pkt ExecHandoffPacket) (contracts.ExecOutput, error) {
 	client := NewA2AHTTPClient()
 
 	execIn := contracts.ExecInput{
-		ActionType: fmt.Sprint(step.Input["action_type"]),
-		Params:     mapStringAnyToString(step.Input),
+		ActionType: fmt.Sprint(pkt.Step.Input["action_type"]),
+		Params:     mapStringAnyToString(pkt.Step.Input),
 	}
 	execBytes, _ := json.Marshal(execIn)
 
 	workflowID := ""
-	if in.Metadata != nil {
-		workflowID = in.Metadata["workflow_id"]
+	if pkt.Intent.Metadata != nil {
+		workflowID = pkt.Intent.Metadata["workflow_id"]
 	}
 	idemKey := ""
-	if workflowID != "" && step.ID != "" {
-		idemKey = workflowID + ":" + step.ID
+	if workflowID != "" && pkt.Step.ID != "" {
+		idemKey = workflowID + ":" + pkt.Step.ID
 	}
 
 	req := contracts.A2ATaskRequest{
 		Agent:          contracts.AgentKindExec,
-		TaskType:       step.TaskType,
+		TaskType:       pkt.Step.TaskType,
 		Input:          execBytes,
-		CorrelationID:  step.ID,
+		CorrelationID:  pkt.Step.ID,
 		IdempotencyKey: idemKey,
 		Context: map[string]any{
-			"incident_id": in.IncidentID,
-			"service":     in.Service,
+			"incident_id": pkt.Intent.IncidentID,
+			"service":     pkt.Intent.Service,
 			"workflow_id": workflowID,
-			"step_id":     step.ID,
+			"step_id":     pkt.Step.ID,
 		},
 	}
 
