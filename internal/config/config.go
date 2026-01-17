@@ -48,6 +48,9 @@ type Config struct {
 
 	// Multi-tenancy / inbound auth for control plane HTTP APIs
 	Tenancy TenancyConfig
+
+	// Reasoning service configuration (optional)
+	Reasoning ReasoningConfig
 }
 
 // ServerConfig holds server configuration
@@ -223,6 +226,15 @@ type TenancyConfig struct {
 	JWTRS256PublicKeyPEM string
 }
 
+// ReasoningConfig controls which "reasoning backend" Go components use when they need model decisions.
+// - Provider: "mcp" (default) uses MCP tool llm.chat
+// - Provider: "dspy" calls an external DSPy reasoning service
+type ReasoningConfig struct {
+	Provider string
+	DSPyURL  string
+	DSPyKey  string
+}
+
 // LLMRouterConfig configures LLM-assisted agent routing.
 type LLMRouterConfig struct {
 	Enabled bool
@@ -345,6 +357,11 @@ func Load() *Config {
 			JWTTenantClaim:       getEnv("TENANCY_JWT_TENANT_CLAIM", "tenant_id"),
 			JWTHS256Secret:       getEnv("TENANCY_JWT_HS256_SECRET", ""),
 			JWTRS256PublicKeyPEM: getEnv("TENANCY_JWT_RS256_PUBLIC_KEY_PEM", ""),
+		},
+		Reasoning: ReasoningConfig{
+			Provider: getEnv("REASONING_PROVIDER", "mcp"),
+			DSPyURL:  getEnv("DSPY_URL", "http://localhost:8099"),
+			DSPyKey:  getEnv("DSPY_API_KEY", ""),
 		},
 	}
 }

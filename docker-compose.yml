@@ -45,6 +45,9 @@ services:
       - RULE_AGENT_URL=http://rule-agent:8081
       - DECISION_AGENT_URL=http://decision-agent:8082
       - MCP_BASE_URL=http://mcp-server:8090
+      # Optional: use DSPy reasoning service for /strategy/run (model.provider=dspy or REASONING_PROVIDER=dspy)
+      - REASONING_PROVIDER=${REASONING_PROVIDER:-mcp}
+      - DSPY_URL=http://dspy-service:8099
     ports:
       - "8080:8080"
     depends_on:
@@ -53,6 +56,7 @@ services:
       - rule-agent
       - decision-agent
       - mcp-server
+      - dspy-service
 
   worker:
     build: .
@@ -122,6 +126,17 @@ services:
     depends_on:
       - postgres
       - elasticsearch
+
+  dspy-service:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./services/dspy-service:/app
+    command: >
+      sh -c "pip install -r requirements.txt &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8099"
+    ports:
+      - "8099:8099"
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4

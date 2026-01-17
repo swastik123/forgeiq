@@ -42,6 +42,8 @@ func NewHybridRouter(agents []Agent, llm LLMClient, fallback Router) *HybridRout
 // NewRouterFromConfig builds either a simple or hybrid router based on config.
 // Pass in the candidate agents that were loaded (from config JSON or from registry store).
 func NewRouterFromConfig(cfg *config.Config, agents []Agent) (Router, error) {
+
+	//
 	base := &AgentRouter{Agents: agents, Options: optionsFromConfig(cfg)}
 	if cfg == nil || !cfg.AgentRouter.Enabled {
 		return base, nil
