@@ -1,0 +1,29 @@
+version: 1
+
+# Default ForgeIQ PR reviewer config (used when repo does not provide pr_reviewer.yaml)
+
+profiles:
+  security:
+    enabled: true
+    block_on: high
+    rules:
+      enable: ["secrets", "authz", "injection"]
+      disable: ["style"]
+
+ignore:
+  paths:
+    - "**/vendor/**"
+    - "**/dist/**"
+    - "**/node_modules/**"
+    - "**/*.min.js"
+    - "**/*.lock"
+    - "terraform.lock.hcl"
+
+limits:
+  max_findings_total: 50
+  max_findings_per_file: 8
+
+publish:
+  inline: true
+  summary: true
+

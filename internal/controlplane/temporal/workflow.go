@@ -86,6 +86,7 @@
 package temporal
 
 import (
+	"strings"
 	"time"
 
 	"forgeiq/internal/controlplane/contracts"
@@ -183,9 +184,28 @@ func IncidentWorkflow(ctx workflow.Context, task contracts.Task) (contracts.Arti
 		return finalResult, nil
 	}
 
+	// 1.5) Fetch relevant correction artifacts for this task (optional).
+	// This is Stage A/B retrieval behind the workflow controller; agents remain stateless.
+	taskForPlan := task
+	if taskForPlan.Input == nil {
+		taskForPlan.Input = map[string]any{}
+	}
+	// Query is intentionally simple; evolve this as you add better intent models.
+	// Example: "correction_artifact incident_triage payments"
+	query := "correction_artifact " + task.Type
+	if v, ok := task.Input["service"].(string); ok && strings.TrimSpace(v) != "" {
+		query += " " + strings.TrimSpace(v)
+	}
+	var corrections []map[string]any
+	_ = workflow.ExecuteActivity(ctx, "FetchCorrections", task, query, 5, pd).Get(ctx, &corrections)
+	if len(corrections) > 0 {
+		taskForPlan.Input["corrections"] = corrections
+		status.Evidence["corrections_fetched"] = map[string]any{"count": len(corrections), "query": query, "ts": now()}
+	}
+
 	// 2) Plan via Decision Agent (A2A)
 	var plan contracts.Plan
-	if err := workflow.ExecuteActivity(ctx, "GetPlan", task, pd, status.Evidence).Get(ctx, &plan); err != nil {
+	if err := workflow.ExecuteActivity(ctx, "GetPlan", taskForPlan, pd, status.Evidence).Get(ctx, &plan); err != nil {
 		status.State = "failed"
 		status.LastError = err.Error()
 		status.UpdatedAtRFC = now()
@@ -194,6 +214,10 @@ func IncidentWorkflow(ctx workflow.Context, task contracts.Task) (contracts.Arti
 	}
 	status.Evidence["plan"] = plan
 	status.UpdatedAtRFC = now()
+
+	// Evaluate plan outputs and store corrections (best-effort).
+	var planEvalOut map[string]any = map[string]any{"plan_confidence": plan.Confidence}
+	_ = workflow.ExecuteActivity(ctx, "EvaluateAndStoreCorrections", task, "plan", "decision", "", planEvalOut, pd).Get(ctx, nil)
 
 	toolCalls := 0
 
@@ -265,10 +289,16 @@ func IncidentWorkflow(ctx workflow.Context, task contracts.Task) (contracts.Arti
 			}
 			status.Evidence["step_error_"+step.StepID] = err.Error()
 			status.UpdatedAtRFC = now()
+
+			// Evaluate failure and store correction artifacts (best-effort).
+			_ = workflow.ExecuteActivity(ctx, "EvaluateAndStoreCorrections", task, "step", "tool", step.ToolName, map[string]any{"error": err.Error(), "step_id": step.StepID}, pd).Get(ctx, nil)
 			continue
 		}
 		status.Evidence["step_out_"+step.StepID] = out
 		status.UpdatedAtRFC = now()
+
+		// Evaluate successful output (best-effort). This is an extension point; currently conservative.
+		_ = workflow.ExecuteActivity(ctx, "EvaluateAndStoreCorrections", task, "step", "tool", step.ToolName, map[string]any{"step_id": step.StepID}, pd).Get(ctx, nil)
 	}
 
 	status.State = "completed"

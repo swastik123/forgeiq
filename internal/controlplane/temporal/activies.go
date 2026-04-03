@@ -164,6 +164,32 @@ func (a *Activities) pickA2AClient(ctx context.Context, agentType string, task c
 	return client, nil, nil
 }
 
+// ReviewPR calls the PR agent (canonical A2A) to review and optionally publish on a Bitbucket PR.
+// The workflow task type is "pr_review", but the agent task type is "review_pr".
+func (a *Activities) ReviewPR(ctx context.Context, task contracts.Task) (contracts.Artifact, error) {
+	if a == nil || a.Config == nil {
+		return contracts.Artifact{}, fmt.Errorf("activities not configured")
+	}
+	agentTask := task
+	agentTask.Type = "review_pr"
+
+	client, _, err := a.pickA2AClient(ctx, "pr", contracts.Task{
+		ID:       task.ID,
+		TenantID: task.TenantID,
+		Type:     agentTask.Type,
+		Metadata: task.Metadata,
+		Input:    task.Input,
+	})
+	if err != nil {
+		return contracts.Artifact{}, err
+	}
+	art, err := client.RunTask(ctx, agentTask)
+	if err != nil {
+		return contracts.Artifact{}, fmt.Errorf("failed to call pr agent: %w", err)
+	}
+	return art, nil
+}
+
 func (a *Activities) evalStart(ctx context.Context, taskID string) {
 	if a == nil || a.Eval == nil {
 		return

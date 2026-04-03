@@ -17,6 +17,7 @@ type Config struct {
 	// Agent URLs
 	RuleAgentURL     string
 	DecisionAgentURL string
+	PRAgentURL       string
 	MCPBaseURL       string
 
 	// Authentication
@@ -72,16 +73,19 @@ type AuthConfig struct {
 	// API Keys for external services
 	RuleAgentAPIKey     string
 	DecisionAgentAPIKey string
+	PRAgentAPIKey       string
 	MCPAPIKey           string
 
 	// OAuth tokens
 	RuleAgentToken     string
 	DecisionAgentToken string
+	PRAgentToken       string
 	MCPToken           string
 
 	// Custom headers (key=value pairs, comma-separated)
 	RuleAgentHeaders     string
 	DecisionAgentHeaders string
+	PRAgentHeaders       string
 	MCPHeaders           string
 }
 
@@ -266,16 +270,20 @@ func Load() *Config {
 		},
 		RuleAgentURL:     getEnv("RULE_AGENT_URL", "http://localhost:8081"),
 		DecisionAgentURL: getEnv("DECISION_AGENT_URL", "http://localhost:8082"),
+		PRAgentURL:       getEnv("PR_AGENT_URL", "http://localhost:8086"),
 		MCPBaseURL:       getEnv("MCP_BASE_URL", "http://localhost:8090"),
 		Auth: AuthConfig{
 			RuleAgentAPIKey:      getEnv("RULE_AGENT_API_KEY", ""),
 			DecisionAgentAPIKey:  getEnv("DECISION_AGENT_API_KEY", ""),
+			PRAgentAPIKey:        getEnv("PR_AGENT_API_KEY", ""),
 			MCPAPIKey:            getEnv("MCP_API_KEY", ""),
 			RuleAgentToken:       getEnv("RULE_AGENT_TOKEN", ""),
 			DecisionAgentToken:   getEnv("DECISION_AGENT_TOKEN", ""),
+			PRAgentToken:         getEnv("PR_AGENT_TOKEN", ""),
 			MCPToken:             getEnv("MCP_TOKEN", ""),
 			RuleAgentHeaders:     getEnv("RULE_AGENT_HEADERS", ""),
 			DecisionAgentHeaders: getEnv("DECISION_AGENT_HEADERS", ""),
+			PRAgentHeaders:       getEnv("PR_AGENT_HEADERS", ""),
 			MCPHeaders:           getEnv("MCP_HEADERS", ""),
 		},
 		Observability: ObservabilityConfig{
@@ -391,6 +399,11 @@ func (a *AuthConfig) GetRuleAgentHeaders() map[string]string {
 // GetDecisionAgentHeaders returns parsed headers for decision agent
 func (a *AuthConfig) GetDecisionAgentHeaders() map[string]string {
 	return a.ParseHeaders(a.DecisionAgentHeaders)
+}
+
+// GetPRAgentHeaders returns parsed headers for pr agent
+func (a *AuthConfig) GetPRAgentHeaders() map[string]string {
+	return a.ParseHeaders(a.PRAgentHeaders)
 }
 
 // GetMCPHeaders returns parsed headers for MCP server

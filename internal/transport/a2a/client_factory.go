@@ -22,6 +22,11 @@ func NewClientFromConfig(cfg *config.Config, agentType string) *Client {
 		apiKey = cfg.Auth.DecisionAgentAPIKey
 		token = cfg.Auth.DecisionAgentToken
 		headers = cfg.Auth.GetDecisionAgentHeaders()
+	case "pr":
+		baseURL = cfg.PRAgentURL
+		apiKey = cfg.Auth.PRAgentAPIKey
+		token = cfg.Auth.PRAgentToken
+		headers = cfg.Auth.GetPRAgentHeaders()
 	default:
 		return nil
 	}

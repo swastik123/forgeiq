@@ -157,6 +157,7 @@ func main() {
 	w.RegisterWorkflow(temporal.IncidentWorkflowWithAgenticLoop)
 	w.RegisterActivity(acts)	// this is the activities object that has got all the activities
 	w.RegisterWorkflow(temporal.RunbookAutomationWorkflow)
+	w.RegisterWorkflow(temporal.PRReviewWorkflow)
 
 	// move these to acts object
 	w.RegisterActivity(temporal.CallRuleAgentActivity)

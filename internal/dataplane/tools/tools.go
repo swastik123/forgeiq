@@ -49,6 +49,9 @@ func RegisterAll(s *mcpserver.Server, cfg *config.Config, logger *observability.
 	// RAG tools (internal vs external retrieval based on dataset type)
 	registerRAGTools(s, cfg, logger, vectorStore, esClient)
 
+	// Memory tools (canonical + discovery)
+	registerMemoryTools(s, cfg, logger, vectorStore)
+
 	// Minimal LLM tools (demo)
 	registerLLMTools(s)
 

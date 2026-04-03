@@ -1,0 +1,53 @@
+Repository context (summary):
+{{REPO_SUMMARY}}
+
+Team review policy (YAML):
+{{POLICY_YAML}}
+
+Review instructions:
+- Focus on correctness, security, reliability, performance, and maintainability according to the policy.
+- Prioritize high-severity and high-risk issues first.
+- Prefer minimal, concrete, production-safe fixes.
+- Provide code-level suggestions when possible.
+- If the diff is large, focus on the highest risk files/hunks first (security, concurrency, memory, public APIs).
+- If anything is skipped, explicitly list it.
+
+Pull Request:
+Title: {{TITLE}}
+Description: {{DESCRIPTION}}
+
+Unified Diff:
+{{DIFF}}
+
+Output JSON schema (STRICT):
+
+{
+  "reviewComments": [
+    {
+      "filePath": "path/from/repo/root",
+      "lineNumber": 123,
+      "fileType": "DESTINATION|SOURCE",
+      "severity": "BLOCKER|HIGH|MEDIUM|LOW|NIT",
+      "category": "SECURITY|PERFORMANCE|RELIABILITY|STYLE|MAINTAINABILITY|TESTING|DOCS|OTHER",
+      "title": "short descriptive title",
+      "comment": "clear actionable explanation + concrete fix guidance",
+      "suggestedPatch": "optional small unified diff snippet (only if confident)"
+    }
+  ],
+  "summary": {
+    "overall": "concise review summary",
+    "risk": "LOW|MEDIUM|HIGH",
+    "areasReviewed": ["file paths or components"],
+    "areasSkipped": ["file paths or components"]
+  }
+}
+
+Rules:
+- lineNumber must map to the diff hunk.
+- Use NEW file line numbers for DESTINATION.
+- Use OLD file line numbers for SOURCE.
+- If line mapping is not possible:
+  set filePath="" and lineNumber=-1
+- suggestedPatch must be localized and safe.
+- Do not suggest speculative changes.
+

@@ -32,13 +32,26 @@ func registerRAGTools(s *mcpserver.Server, cfg *config.Config, logger *observabi
 		return
 	}
 
-	var embedder rag.Embedder = rag.NewHashEmbedder(cfg.Embeddings.Dim)
-	if strings.ToLower(cfg.Embeddings.Provider) == "http" && strings.TrimSpace(cfg.Embeddings.URL) != "" {
-		if httpEmb, err := rag.NewHTTPEmbedder(cfg.Embeddings.URL, cfg.Embeddings.APIKey, cfg.Embeddings.Model, cfg.Embeddings.Dim); err != nil {
-			logger.Error("Failed to initialize HTTP embedder; falling back to hash embedder", zap.Error(err))
+	var embedder rag.Embedder
+	provider := strings.ToLower(strings.TrimSpace(cfg.Embeddings.Provider))
+	switch provider {
+	case "", "hash":
+		embedder = rag.NewHashEmbedder(cfg.Embeddings.Dim)
+		logger.Warn("Using HashEmbedder for RAG internal retrieval (deterministic but NOT semantic). For semantic retrieval, set EMBEDDINGS_PROVIDER=http and configure EMBEDDINGS_URL/API key.", zap.Int("dim", cfg.Embeddings.Dim))
+	case "http":
+		if strings.TrimSpace(cfg.Embeddings.URL) == "" {
+			logger.Error("EMBEDDINGS_PROVIDER=http but EMBEDDINGS_URL is empty; internal semantic retrieval is unavailable")
+			embedder = nil
+		} else if httpEmb, err := rag.NewHTTPEmbedder(cfg.Embeddings.URL, cfg.Embeddings.APIKey, cfg.Embeddings.Model, cfg.Embeddings.Dim); err != nil {
+			logger.Error("Failed to initialize HTTP embedder; internal semantic retrieval is unavailable", zap.Error(err))
+			embedder = nil
 		} else {
 			embedder = httpEmb
+			logger.Info("Initialized HTTP embedder for RAG internal retrieval", zap.Int("dim", cfg.Embeddings.Dim))
 		}
+	default:
+		logger.Error("Unknown EMBEDDINGS_PROVIDER; internal semantic retrieval is unavailable", zap.String("provider", provider))
+		embedder = nil
 	}
 
 	svc := &rag.Service{

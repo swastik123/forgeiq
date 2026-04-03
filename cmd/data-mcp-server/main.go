@@ -54,11 +54,24 @@ func main() {
 	handler := observability.HTTPLoggingMiddleware(logger, mux)
 	handler = observability.HTTPMetricsMiddleware(metrics, handler)
 
-	// Create server with timeouts
-	addr := ":" + cfg.Server.Port
-	srv := observability.NewServer(addr, handler)
+	// // Create server with timeouts
+	// addr := ":" + cfg.Server.Port
+	// srv := observability.NewServer(addr, handler)
 
-	logger.Info("Starting data-plane MCP server", zap.String("addr", addr))
+	// logger.Info("Starting data-plane MCP server", zap.String("addr", addr))
+	// if err := observability.StartServer(logger, srv, "data-mcp-server"); err != nil {
+	// 	logger.Fatal("Server failed", zap.Error(err))
+	// }
+
+	port := os.Getenv("PR_AGENT_PORT")
+	if port == "" {
+		port = os.Getenv("PORT")
+	}
+	if port == "" {
+		port = "8090"
+	}
+	srv := observability.NewServer(":"+port, handler)
+	logger.Info("Starting pr-agent", zap.String("addr", ":"+port))
 	if err := observability.StartServer(logger, srv, "data-mcp-server"); err != nil {
 		logger.Fatal("Server failed", zap.Error(err))
 	}

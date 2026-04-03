@@ -362,6 +362,8 @@ func main() {
 			wf = temporal.IncidentWorkflowWithAgenticLoop
 		case "runbook_automation":
 			wf = temporal.RunbookAutomationWorkflow
+		case "pr_review":
+			wf = temporal.PRReviewWorkflow
 		default:
 			http.Error(w, "unknown task type: "+task.Type, http.StatusBadRequest)
 			return
